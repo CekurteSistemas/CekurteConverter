@@ -1,0 +1,16 @@
+{
+    "name": "cekurte/converter",
+    "license": "MIT",
+    "type": "project",
+    "description": "Conversor de arquivos multimídia",
+    "autoload": {
+        "psr-0": {
+            "": "src/"
+        }
+    },
+    "require": {
+        "php": ">=5.3.3",
+        "symfony/console": "2.3.*"
+    },
+    "minimum-stability": "stable"
+}
