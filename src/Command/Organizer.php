@@ -141,10 +141,6 @@ EOF
             ->setWorkingDirectory($fileInfo->getPath())
             ->run(function ($type, $buffer) use (&$time, $regex, $keys) {
                 if (Process::OUT === $type) {
-                    echo $buffer;
-                }
-
-                if (Process::OUT === $type) {
                     foreach ($keys as $key) {
                         if (strpos($buffer, $key) !== false) {
                             $currentRegex = '/' . str_replace('/', '\/', $key) . $regex . '/';

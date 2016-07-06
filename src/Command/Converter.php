@@ -9,16 +9,10 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\Process\Process;
 
 class Converter extends Command
 {
-    const VIDEO_TO_VIDEO = 'Convert a video to another video format';
-    const SONG_TO_SONG   = 'Convert a song to another song format';
-    const VIDEO_TO_SONG  = 'Convert a video to a song format';
-
-    const DATA_FROM_FILE      = 'Load data from a file';
-    const DATA_FROM_DIRECTORY = 'Load data from a directory';
-
     /**
      * @var SymfonyStyle
      */
@@ -27,17 +21,17 @@ class Converter extends Command
     /**
      * @var string
      */
-    private $mediaType;
+    private $extension;
 
     /**
-     * @var string
+     * @var int
      */
-    private $from;
+    private $count = 0;
 
     /**
-     * @var string
+     * @var int
      */
-    private $source;
+    private $countConverted = 0;
 
     protected function configure()
     {
@@ -55,151 +49,103 @@ EOF
         ;
     }
 
-    private function sectionMediaType()
+    private function sectionDirectory()
     {
-        $this->io->section('Media type');
+        $this->io->section('Directory');
 
-        $mediaType = $this->io->choice(
-            'Select the type of convertion that you want to do',
-            [self::VIDEO_TO_VIDEO, self::SONG_TO_SONG, self::VIDEO_TO_SONG],
-            self::VIDEO_TO_VIDEO
-        );
+        $question = 'Set the directory (absolute path)';
 
-        $this->io->success($mediaType);
-
-        $this->mediaType = $mediaType;
-    }
-
-    private function sectionFrom()
-    {
-        $this->io->section('From');
-
-        $from = $this->io->choice(
-            'Select the type of input data',
-            [self::DATA_FROM_FILE, self::DATA_FROM_DIRECTORY],
-            self::DATA_FROM_DIRECTORY
-        );
-
-        $ask = $from === self::DATA_FROM_FILE ? 'filename' : 'directory';
-        $question = sprintf('Set the %s (absolute path)', $ask);
-
-        $source = $this->io->ask($question, null, function ($input) use ($ask, $from) {
-            if (!file_exists($input)) {
-                throw new \RuntimeException(sprintf('You must type an existant %s.', $ask));
-            }
-
-            if ($from === self::DATA_FROM_DIRECTORY && !is_dir($input)) {
+        $source = $this->io->ask($question, null, function ($input) {
+            if (!is_dir($input)) {
                 throw new \RuntimeException('You must type an valid directory.');
-            }
-
-            if ($from === self::DATA_FROM_FILE && !is_file($input)) {
-                throw new \RuntimeException('You must type an valid filename.');
             }
 
             return $input;
         });
 
-        $this->io->success(sprintf('[%s] %s', $ask, $source));
+        $this->io->success($source);
 
-        $this->from   = $from;
-        $this->source = $source;
-    }
+        $this->io->section('Extension');
 
-    private function getFiles()
-    {
-        if ($this->from === self::DATA_FROM_FILE) {
-            return [new \SplFileInfo($this->source)];
-        }
+        $question = 'Set the extension (for example: mts)';
 
-        $files = [];
+        $this->extension = $this->io->ask($question, null, function ($input) {
+            return strtolower($input);
+        });
 
-        $directoryIterator = new \DirectoryIterator($this->source);
+        $this->io->success($this->extension);
 
-        foreach ($directoryIterator as $current) {
-            if (!$current->isDot()) {
-                $files[] = $current->getFileInfo();
+        $directoryIterator = new \DirectoryIterator($source);
+
+        foreach ($directoryIterator as $fileInfo) {
+            if ($fileInfo->isDot() || $fileInfo->isDir()) {
+                continue;
             }
+
+            if (strtolower($fileInfo->getExtension()) !== $this->extension) {
+                continue;
+            }
+
+            $this->io->text('Running the "ffmpeg" tool.');
+            $result = $this->runFfmpegTool($fileInfo);
+
+            if ($result === true) {
+                $this->countConverted++;
+            }
+
+            $this->count++;
         }
 
-        return $files;
-    }
-
-    private function skipFile(\SplFileInfo $fileInfo)
-    {
-        if ($fileInfo->getExtension() === 'MTS') {
-            return false;
+        if ($this->count === 0) {
+            $this->io->note(sprintf(
+                'Nothing file with extension "*.%s" was found.',
+                $this->extension
+            ));
         }
-
-        return true;
     }
 
     private function runFfmpegTool(\SplFileInfo $fileInfo)
     {
-        $command = sprintf(
-            '%s "%s"%s %s',
+        $process = new Process(sprintf(
+            '%s -i "%s"%s "%s"',
             Environment::get('FFMPEG_BIN'),
             $fileInfo->getPathname(),
             empty(Environment::get('FFMPEG_ARGS')) ? '' : ' ' . Environment::get('FFMPEG_ARGS'),
-            $fileInfo->getpathname() . '.mp4'
-        );
-
-        $output = [];
-
-        exec($command, $output);
-
-        return $output;
-    }
-
-    private function runExifTool(\SplFileInfo $fileInfo)
-    {
-        $command = sprintf(
-            '%s "%s"',
-            Environment::get('EXIFTOOL_BIN'),
-            $fileInfo->getpathname()
-        );
-
-        $output = [];
-
-        exec($command, $output);
-
-        return $output;
-    }
-
-    private function getFileDateCreation(array $exiftoolOutput)
-    {
-        return new \DateTime(sprintf(
-            '%s %s',
-            str_replace(':', '-', substr($exiftoolOutput[18], strpos($exiftoolOutput[18], ': ') + 2, 10)),
-            substr($exiftoolOutput[18], strpos($exiftoolOutput[18], ': ') + 13, 8)
+            substr($fileInfo->getpathname(), 0, 0 - (strlen($this->extension) + 1)) . '.mp4'
         ));
-    }
 
-    private function sectionConverter()
-    {
-        $this->io->section('Converter');
+        $this->io->text(sprintf('Converting movie "%s".', $fileInfo->getFilename()));
 
-        $files = $this->getFiles();
+        $result = false;
 
-        foreach ($files as $fileInfo) {
-            $this->io->text(sprintf('Reading the file "%s"', $fileInfo->getPathname()));
+        $process
+            ->setWorkingDirectory($fileInfo->getPath())
+            ->run(function ($type, $buffer) use (&$result) {
+                if (Process::OUT === $type) {
+                    $result = true;
+                }
 
-            if ($this->skipFile($fileInfo)) {
-                continue;
-            }
+                echo $buffer;
+            })
+        ;
 
-            $this->io->text('Running the "ffmpeg" tool');
-            $this->runFfmpegTool($fileInfo);
-        }
+        return $result;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
         $this->io = new SymfonyStyle($input, $output);
-        $this->io->title('Cekurte Converter');
+        $this->io->title('Converter');
         $this->io->newLine();
 
-        $this->sectionMediaType();
-        $this->sectionFrom();
-        $this->sectionConverter();
+        $this->sectionDirectory();
+
+        if ($this->countConverted > 0) {
+            $this->io->success(sprintf(
+                '%d of %d file(s) was converted.',
+                $this->countConverted,
+                $this->count
+            ));
+        }
     }
 }
