@@ -2,15 +2,20 @@
 <?php
 // app/console
 
-use Cekurte\FFMpegBundle\Command\ConverterCommand;
-use Symfony\Component\Console\Application;
+use Cekurte\Media\Organizer\Command\Converter;
+use Cekurte\Media\Organizer\Command\Organizer;
 use Composer\Autoload\ClassLoader;
+use Symfony\Component\Console\Application;
 
 /**
  * @var $loader ClassLoader
  */
-$loader = require __DIR__.'/vendor/autoload.php';
+$loader = require __DIR__ . '/vendor/autoload.php';
+
+$dotenv = new Dotenv\Dotenv(__DIR__);
+$dotenv->load();
 
 $application = new Application();
-$application->add(new ConverterCommand);
+$application->add(new Converter);
+$application->add(new Organizer);
 $application->run();
