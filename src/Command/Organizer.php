@@ -26,6 +26,11 @@ class Organizer extends Command
      */
     private $countMoved = 0;
 
+    /**
+     * @var int
+     */
+    private $countRemoved = 0;
+
     protected function configure()
     {
         $this
@@ -47,7 +52,7 @@ EOF
         $question = 'Set the directory (absolute path)';
 
         $source = $this->io->ask($question, null, function ($input) {
-            if (!is_dir($input)) {
+            if (!is_dir($input = str_replace('\\ ', ' ', $input))) {
                 throw new \RuntimeException('You must type an valid directory.');
             }
 
@@ -67,6 +72,10 @@ EOF
                 continue;
             }
 
+            if (substr($fileInfo->getFilename(), 0, 1) === '.') {
+                continue;
+            }
+
             $this->io->text('Running the "exiftool".');
             $time = $this->runExifTool($fileInfo);
 
@@ -82,7 +91,7 @@ EOF
                     $file .= $time->format($letter) . $exportFileSep;
                 }
 
-                $file = substr($file, 0, 0 - strlen($exportFileSep)) . '.' . strtolower($fileInfo->getExtension());
+                $file = substr($file, 0, 0 - strlen($exportFileSep));
 
                 if (!file_exists($dir)) {
                     $this->io->text(sprintf('Creating the directory "%s".', $dir));
@@ -95,23 +104,69 @@ EOF
                     }
                 }
 
-                $this->io->text([
-                    'Moving file...',
-                    sprintf('From: "%s"', $fileInfo->getPathname()),
-                    sprintf('To:   "%s"', $dir . $file),
-                ]);
-
-                if (rename($fileInfo->getPathname(), $dir . $file) === false) {
-                    $this->io->error('The file can not be moved, check the filesystem permissions.');
-                }
-
-                $this->countMoved++;
-
-                $this->io->newLine();
+                $this->moveFile($fileInfo, $dir, $file);
             }
 
             $this->count++;
         }
+    }
+
+    private function moveFile(\SplFileInfo $fileInfo, $directory, $filename, $count = 0)
+    {
+        $extension = ''
+            . ($count > 0 ? '_0' . $count : '')
+            . '.'
+            . strtolower($fileInfo->getExtension())
+        ;
+
+        $this->io->text([
+            'Moving file...',
+            sprintf('From: "%s"', $fileInfo->getPathname()),
+            sprintf('To:   "%s"', $directory . $filename . $extension),
+        ]);
+
+        if (file_exists($directory . $filename . $extension)) {
+            $this->io->text([
+                'Filename already exists comparing the MD5...',
+                sprintf('From: "%s"', $fromMd5 = md5_file($fileInfo->getPathname())),
+                sprintf('To:   "%s"', $toMd5 = md5_file($directory . $filename . $extension)),
+                sprintf('Are they equals? %s.', $fromMd5 === $toMd5 ? 'Yes' : 'No')
+            ]);
+
+            if ($fromMd5 === $toMd5) {
+                $this->io->text(sprintf(
+                    'Removing the file "%s".',
+                    $fileInfo->getPathname()
+                ));
+
+                $this->io->newLine();
+
+                if (unlink($fileInfo->getPathname()) === false) {
+                    $this->io->error(sprintf(
+                        'The file "%s" can not be removed, check the filesystem permissions.',
+                        $fileInfo->getPathname()
+                    ));
+                }
+
+                $this->countRemoved++;
+
+                return false;
+            } else {
+                return $this->moveFile($fileInfo, $directory, $filename, ++$count);
+            }
+        }
+
+        if (rename($fileInfo->getPathname(), $directory . $filename . $extension) === false) {
+            $this->io->error('The file can not be moved, check the filesystem permissions.');
+        } else {
+            $this->io->text('File moved with successfully.');
+        }
+
+        $this->io->newLine();
+
+        $this->countMoved++;
+
+        return true;
     }
 
     private function runExifTool(\SplFileInfo $fileInfo)
@@ -119,7 +174,7 @@ EOF
         $process = new Process(sprintf(
             '%s %s',
             Environment::get('EXIFTOOL_BIN'),
-            $fileInfo->getpathname()
+            str_replace(' ', '\\ ', $fileInfo->getpathname())
         ));
 
         $time = null;
@@ -180,10 +235,12 @@ EOF
 
         $this->sectionDirectory();
 
-        if ($this->countMoved > 0) {
+        if ($this->countMoved > 0 || $this->countRemoved > 0) {
             $this->io->success(sprintf(
-                '%d of %d file(s) was reorganized.',
+                '%d of %d file(s) reorganized and %d of %d file(s) removed.',
                 $this->countMoved,
+                $this->count,
+                $this->countRemoved,
                 $this->count
             ));
         }
