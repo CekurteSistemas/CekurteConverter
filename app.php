@@ -4,6 +4,7 @@
 
 use Cekurte\Media\Organizer\Command\Converter;
 use Cekurte\Media\Organizer\Command\Organizer;
+use Cekurte\Media\Organizer\Command\Tokenizer;
 use Composer\Autoload\ClassLoader;
 use Symfony\Component\Console\Application;
 
@@ -18,4 +19,5 @@ $dotenv->load();
 $application = new Application();
 $application->add(new Converter);
 $application->add(new Organizer);
+$application->add(new Tokenizer);
 $application->run();
