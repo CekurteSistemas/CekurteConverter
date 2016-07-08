@@ -172,16 +172,14 @@ EOF
     private function runExifTool(\SplFileInfo $fileInfo)
     {
         $process = new Process(sprintf(
-            '%s %s',
+            '%s -json -a -u -U "%s"',
             Environment::get('EXIFTOOL_BIN'),
-            str_replace(' ', '\\ ', $fileInfo->getpathname())
+            $fileInfo->getpathname()
         ));
 
         $time = null;
 
         $this->io->text(sprintf('Reading metadata of file "%s".', $fileInfo->getFilename()));
-
-        $regex = '.*?:.*?(\d{4}:\d{2}:\d{2}\s+\d{2}:\d{2}:\d{2})(-?\+?\d{2}:\d{2})?';
 
         $keys = [
             'Date/Time Original',
@@ -190,28 +188,30 @@ EOF
             'Create Date',
             'Track Create Date',
             'Media Create Date',
+            'DateTimeOriginal',
+            'CreateDate',
         ];
 
         $process
             ->setWorkingDirectory($fileInfo->getPath())
-            ->run(function ($type, $buffer) use (&$time, $regex, $keys) {
+            ->run(function ($type, $buffer) use (&$time, $keys) {
                 if (Process::OUT === $type) {
-                    foreach ($keys as $key) {
-                        if (strpos($buffer, $key) !== false) {
-                            $currentRegex = '/' . str_replace('/', '\/', $key) . $regex . '/';
+                    $json = json_decode($buffer, true);
 
-                            if (preg_match($currentRegex, $buffer, $matches) !== false) {
-                                if (isset($matches[2])) {
-                                    return $time = \DateTime::createFromFormat(
-                                        'Y:m:d H:i:sT',
-                                        $matches[1] . $matches[2]
-                                    );
-                                } else {
-                                    return $time = \DateTime::createFromFormat(
-                                        'Y:m:d H:i:s',
-                                        $matches[1]
-                                    );
-                                }
+                    if (!is_null($json)) {
+                        foreach ($keys as $key) {
+                            if (in_array($key, array_keys($json[0]))) {
+                                $value = trim($json[0][$key]);
+
+                                $format = strlen($value) === 19
+                                    ? 'Y:m:d H:i:s'
+                                    : 'Y:m:d H:i:sT'
+                                ;
+
+                                return $time = \DateTime::createFromFormat(
+                                    $format,
+                                    $value
+                                );
                             }
                         }
                     }
