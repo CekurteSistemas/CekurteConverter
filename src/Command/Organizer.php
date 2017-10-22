@@ -172,7 +172,7 @@ EOF
     private function runExifTool(\SplFileInfo $fileInfo)
     {
         $process = new Process(sprintf(
-            '%s -json -a -u -U "%s"',
+            '%s -json -a "%s"',
             Environment::get('EXIFTOOL_BIN'),
             $fileInfo->getpathname()
         ));
@@ -202,6 +202,10 @@ EOF
                         foreach ($keys as $key) {
                             if (in_array($key, array_keys($json[0]))) {
                                 $value = trim($json[0][$key]);
+
+                                if (strpos($value, ' DST') !== false) {
+                                    $value = substr($value, 0, -4);
+                                }
 
                                 $format = strlen($value) === 19
                                     ? 'Y:m:d H:i:s'
