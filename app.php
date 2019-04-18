@@ -1,23 +1,15 @@
 #!/usr/bin/env php
 <?php
-// app/console
 
-use Cekurte\Media\Organizer\Command\Converter;
-use Cekurte\Media\Organizer\Command\Organizer;
-use Cekurte\Media\Organizer\Command\Tokenizer;
-use Composer\Autoload\ClassLoader;
-use Symfony\Component\Console\Application;
+require_once 'vendor/autoload.php';
 
-/**
- * @var $loader ClassLoader
- */
-$loader = require __DIR__ . '/vendor/autoload.php';
-
-$dotenv = new Dotenv\Dotenv(__DIR__);
+$dotenv = Dotenv\Dotenv::create(__DIR__);
 $dotenv->load();
 
+use Cercal\IO\MediaOrganizer\Command;
+use Symfony\Component\Console\Application;
+
 $application = new Application();
-$application->add(new Converter);
-$application->add(new Organizer);
-$application->add(new Tokenizer);
+$application->add(new Command\Converter());
+$application->add(new Command\Organizer());
 $application->run();
