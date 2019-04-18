@@ -1,0 +1,15 @@
+version: '3.7'
+services:
+    php:
+        build: ./.docker/php
+        working_dir: /app
+        volumes:
+            - ./.docker/php/php.ini:/usr/local/etc/php/php.ini
+            - ./:/app
+            - ${LOCAL_VOLUME_SOURCE_ROOT_DIR}:${ORGANIZER_SOURCE_ROOT_DIR}
+            - ${LOCAL_VOLUME_TARGET_ROOT_DIR}:${ORGANIZER_TARGET_ROOT_DIR}
+
+    composer:
+        image: composer
+        volumes:
+            - ./:/app

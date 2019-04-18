@@ -1,6 +1,6 @@
 <?php
 
-namespace Cekurte\Media\Organizer\Command;
+namespace Cercal\IO\MediaOrganizer\Command;
 
 use Cekurte\Environment\Environment;
 use Symfony\Component\Console\Command\Command;
@@ -36,7 +36,7 @@ class Converter extends Command
     protected function configure()
     {
         $this
-            ->setName('cekurte:mo:converter')
+            ->setName('cercal:mo:converter')
             ->setDescription('Convert files to another format using ffmpeg tool')
             ->setHelp(<<<'EOF'
 The <info>%command.name%</info> command convert one or more files to another format using ffmpeg tool to do this:

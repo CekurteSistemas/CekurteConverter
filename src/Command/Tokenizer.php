@@ -1,6 +1,6 @@
 <?php
 
-namespace Cekurte\Media\Organizer\Command;
+namespace Cercal\IO\MediaOrganizer\Command;
 
 use Cekurte\Environment\Environment;
 use Symfony\Component\Console\Command\Command;
@@ -39,7 +39,7 @@ class Tokenizer extends Command
     protected function configure()
     {
         $this
-            ->setName('cekurte:mo:tokenizer')
+            ->setName('cercal:mo:tokenizer')
             ->setDescription('Rename files in directory using md5_file')
             ->setHelp(<<<'EOF'
 The <info>%command.name%</info> command organize the files in directory using md5_file (function of PHP) to do this:

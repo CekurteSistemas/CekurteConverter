@@ -1,40 +1,40 @@
 <?php
 
-namespace Cekurte\Media\Organizer\Command;
+namespace Cercal\IO\MediaOrganizer\Command;
 
+use Cercal\IO\MediaOrganizer\Command\Style\AppStyle;
+use Cercal\IO\MediaOrganizer\Observer\Notification;
+use Cercal\IO\MediaOrganizer\Observer\NotificationObservable;
+use Cercal\IO\MediaOrganizer\Observer\ConsoleNotifier;
+use DateTimeImmutable;
+use RuntimeException;
+use Generator;
+use Cercal\IO\MediaOrganizer\Command\Question\SourceDirectoryQuestion;
 use Cekurte\Environment\Environment;
+use Cercal\IO\MediaOrganizer\File\File;
+use Cercal\IO\MediaOrganizer\File\LocalFileSystem;
+use Cercal\IO\MediaOrganizer\File\Search;
+use Cercal\IO\MediaOrganizer\File\SearchContext;
+use Cercal\IO\MediaOrganizer\File\SearchForPictures;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
-use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\Process\Process;
 
 class Organizer extends Command
 {
-    /**
-     * @var SymfonyStyle
-     */
-    private $io;
+	private $fileSystem;
 
-    /**
-     * @var int
-     */
-    private $count = 0;
+	public function __construct()
+	{
+		$this->fileSystem = new LocalFileSystem();
 
-    /**
-     * @var int
-     */
-    private $countMoved = 0;
+		parent::__construct();
+	}
 
-    /**
-     * @var int
-     */
-    private $countRemoved = 0;
-
-    protected function configure()
+	protected function configure()
     {
         $this
-            ->setName('cekurte:mo:organizer')
+            ->setName('cercal:mo:organizer')
             ->setDescription('Organize files in directories using exiftool')
             ->setHelp(<<<'EOF'
 The <info>%command.name%</info> command organize the files in directories (by date of creation) using exiftool to do this:
@@ -45,208 +45,119 @@ EOF
         ;
     }
 
-    private function sectionDirectory()
-    {
-        $this->io->section('Directory');
+	private function resolveTargetPathname(File $file): string
+	{
+		$result = Environment::get('ORGANIZER_TARGET_ROOT_DIR') . DIRECTORY_SEPARATOR;
 
-        $question = 'Set the directory (absolute path)';
+		$dirnameFormat  = array_filter(explode('/', Environment::get('ORGANIZER_TARGET_DIR_NAME_FORMAT')));
+		$filenameFormat = array_filter(explode(':', Environment::get('ORGANIZER_TARGET_FILE_NAME_FORMAT')));
+		$filenameSeparator = Environment::get('ORGANIZER_TARGET_FILE_NAME_SEPARATOR');
 
-        $source = $this->io->ask($question, null, function ($input) {
-            if (!is_dir($input = str_replace('\\ ', ' ', $input))) {
-                throw new \RuntimeException('You must type an valid directory.');
-            }
+		$creationTime = $file->getExifData()->getCreationTime();
 
-            return $input;
-        });
+		if (!$creationTime instanceof DateTimeImmutable) {
+			return '';
+		}
 
-        $this->io->success($source);
+		foreach ($dirnameFormat as $letter) {
+			$result .= $creationTime->format($letter) . DIRECTORY_SEPARATOR;
+		}
 
-        $exportDir  = array_filter(explode('/', Environment::get('EXIFTOOL_EXPORT_DIR')));
-        $exportFile = array_filter(explode(':', Environment::get('EXIFTOOL_EXPORT_FILE')));
-        $exportFileSep = Environment::get('EXIFTOOL_EXPORT_FILE_SEPARATOR');
+		if (!$this->fileSystem->exists($result)) {
+			$this->fileSystem->mkdir($result);
+		}
 
-        $directoryIterator = new \DirectoryIterator($source);
+		foreach ($filenameFormat as $letter) {
+			$result .= $creationTime->format($letter) . $filenameSeparator;
+		}
 
-        foreach ($directoryIterator as $fileInfo) {
-            if ($fileInfo->isDot() || $fileInfo->isDir()) {
-                continue;
-            }
-
-            if (substr($fileInfo->getFilename(), 0, 1) === '.') {
-                continue;
-            }
-
-            $this->io->text('Running the "exiftool".');
-            $time = $this->runExifTool($fileInfo);
-
-            if ($time instanceof \DateTime) {
-                $dir  = $source . DIRECTORY_SEPARATOR;
-                $file = '';
-
-                foreach ($exportDir as $letter) {
-                    $dir .= $time->format($letter) . DIRECTORY_SEPARATOR;
-                }
-
-                foreach ($exportFile as $letter) {
-                    $file .= $time->format($letter) . $exportFileSep;
-                }
-
-                $file = substr($file, 0, 0 - strlen($exportFileSep));
-
-                if (!file_exists($dir)) {
-                    $this->io->text(sprintf('Creating the directory "%s".', $dir));
-
-                    if (mkdir($dir, 0777, true) === false) {
-                        $this->io->error(sprintf(
-                            'The directory "%s" can not be created, check the filesystem permissions.',
-                            $dir
-                        ));
-                    }
-                }
-
-                $this->moveFile($fileInfo, $dir, $file);
-            }
-
-            $this->count++;
-        }
+		return substr($result, 0, 0 - strlen($filenameSeparator)) . '.' . strtolower($file->getExtension());
     }
 
-    private function moveFile(\SplFileInfo $fileInfo, $directory, $filename, $count = 0)
-    {
-        $extension = ''
-            . ($count > 0 ? '_0' . $count : '')
-            . '.'
-            . strtolower($fileInfo->getExtension())
-        ;
-
-        $this->io->text([
-            'Moving file...',
-            sprintf('From: "%s"', $fileInfo->getPathname()),
-            sprintf('To:   "%s"', $directory . $filename . $extension),
-        ]);
-
-        if (file_exists($directory . $filename . $extension)) {
-            $this->io->text([
-                'Filename already exists comparing the MD5...',
-                sprintf('From: "%s"', $fromMd5 = md5_file($fileInfo->getPathname())),
-                sprintf('To:   "%s"', $toMd5 = md5_file($directory . $filename . $extension)),
-                sprintf('Are they equals? %s.', $fromMd5 === $toMd5 ? 'Yes' : 'No')
-            ]);
-
-            if ($fromMd5 === $toMd5) {
-                $this->io->text(sprintf(
-                    'Removing the file "%s".',
-                    $fileInfo->getPathname()
-                ));
-
-                $this->io->newLine();
-
-                if (unlink($fileInfo->getPathname()) === false) {
-                    $this->io->error(sprintf(
-                        'The file "%s" can not be removed, check the filesystem permissions.',
-                        $fileInfo->getPathname()
-                    ));
-                }
-
-                $this->countRemoved++;
-
-                return false;
-            } else {
-                return $this->moveFile($fileInfo, $directory, $filename, ++$count);
-            }
-        }
-
-        if (rename($fileInfo->getPathname(), $directory . $filename . $extension) === false) {
-            $this->io->error('The file can not be moved, check the filesystem permissions.');
-        } else {
-            $this->io->text('File moved with successfully.');
-        }
-
-        $this->io->newLine();
-
-        $this->countMoved++;
-
-        return true;
+	private function getFilenameSuffixNumber(): Generator
+	{
+		for ($i = 1; $i <= 100; $i++) {
+			yield number_format($i, 3);
+		}
     }
 
-    private function runExifTool(\SplFileInfo $fileInfo)
-    {
-        $process = new Process(sprintf(
-            '%s -json -a "%s"',
-            Environment::get('EXIFTOOL_BIN'),
-            $fileInfo->getpathname()
-        ));
+	private function organize(AppStyle $io, string $sourcePathname, string $targetPathname): void
+	{
+		$notification = new NotificationObservable();
+		$notification->attach(new ConsoleNotifier($io));
 
-        $time = null;
+		if ($this->fileSystem->exists(new File($targetPathname))) {
+			$notification->setNotification(Notification::info('A target file with the same name already exists.'));
+			$notification->setNotification(Notification::info(('Comparing the files by using md5 checksum.')));
 
-        $this->io->text(sprintf('Reading metadata of file "%s".', $fileInfo->getFilename()));
+			$equals = $this->fileSystem->compare($sourcePathname, $targetPathname);
 
-        $keys = [
-            'Date/Time Original',
-            'Content Create Date',
-            'Criation Date',
-            'Create Date',
-            'Track Create Date',
-            'Media Create Date',
-            'DateTimeOriginal',
-            'CreateDate',
-        ];
+			if ($equals) {
+				$notification->setNotification(Notification::info('The files are equals to each other.'));
+				$notification->setNotification(Notification::info('Removing the source file.'));
 
-        $process
-            ->setWorkingDirectory($fileInfo->getPath())
-            ->run(function ($type, $buffer) use (&$time, $keys) {
-                if (Process::OUT === $type) {
-                    $json = json_decode($buffer, true);
+				try {
+					$this->fileSystem->rm($sourcePathname);
 
-                    if (!is_null($json)) {
-                        foreach ($keys as $key) {
-                            if (in_array($key, array_keys($json[0]))) {
-                                $value = trim($json[0][$key]);
+					$notification->setNotification(Notification::success('Source file removed successfully.'));
+				} catch (RuntimeException $e) {
+					$notification->setNotification(Notification::error($e->getMessage()));
+				}
 
-                                if (strpos($value, ' DST') !== false) {
-                                    $value = substr($value, 0, -4);
-                                }
+				$io->newLine();
 
-                                $format = strlen($value) === 19
-                                    ? 'Y:m:d H:i:s'
-                                    : 'Y:m:d H:i:sT'
-                                ;
+				return;
+			} else {
+				$notification->setNotification(Notification::info('The files are different.'));
 
-                                return $time = \DateTime::createFromFormat(
-                                    $format,
-                                    $value
-                                );
-                            }
-                        }
-                    }
-                }
-            })
-        ;
+				$this->organize($io, $sourcePathname, $targetPathname . '.abc');
+			}
+		}
 
-        if (!$time instanceof \DateTime) {
-            $this->io->text('Metadata about date was not found.');
-            $this->io->newLine();
-        }
+		try {
+			$this->fileSystem->mv($sourcePathname, $targetPathname);
 
-        return $time;
+			$notification->setNotification(Notification::success('Source file moved successfully.'));
+		} catch (RuntimeException $e) {
+			$notification->setNotification(Notification::error($e->getMessage()));
+		}
+
+		$io->newLine();
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $this->io = new SymfonyStyle($input, $output);
-        $this->io->title('Organizer');
-        $this->io->newLine();
+        $io = new AppStyle($input, $output);
+		$io->title('Organizer');
+		$io->newLine();
 
-        $this->sectionDirectory();
+		$sourceDirectory = $io->askQuestion(new SourceDirectoryQuestion());
+		$io->success($sourceDirectory);
 
-        if ($this->countMoved > 0 || $this->countRemoved > 0) {
-            $this->io->success(sprintf(
-                '%d of %d file(s) reorganized and %d of %d file(s) removed.',
-                $this->countMoved,
-                $this->count,
-                $this->countRemoved,
-                $this->count
-            ));
-        }
+        $searchContext = new SearchContext($sourceDirectory, true, [
+			new SearchForPictures(),
+		]);
+
+		$searchResults = (new Search($searchContext))->search();
+
+		if (count($searchResults) == 0) {
+			$io->warning('No files matched the search criteria.');
+
+			return;
+		}
+
+		$io->progressStart(count($searchResults));
+
+		foreach ($searchResults as $file) {
+			$targetPathname = $this->resolveTargetPathname($file);
+
+			$io->progressAdvance();
+
+			$io->newLine();
+			$io->writeln(sprintf(' <<< Source File: "%s"', $file->getPathname()));
+			$io->writeln(sprintf(' >>> Target File: "%s"', $targetPathname));
+
+			$this->organize($io, $file->getPathname(), $targetPathname);
+		}
     }
 }
