@@ -3,7 +3,7 @@
 namespace Cercal\IO\MediaOrganizer\Command\Question;
 
 use Cekurte\Environment\Environment;
-use RuntimeException;
+use InvalidArgumentException;
 use Symfony\Component\Console\Question\Question;
 
 class SourceDirectoryQuestion extends Question
@@ -20,7 +20,7 @@ class SourceDirectoryQuestion extends Question
 	public function validator(string $input): string
 	{
 		if (!is_dir($input = str_replace('\\ ', ' ', $input))) {
-			throw new RuntimeException(self::QUESTION_ERROR);
+			throw new InvalidArgumentException(self::QUESTION_ERROR);
 		}
 
 		return $input;

@@ -12,5 +12,4 @@ use Symfony\Component\Console\Application;
 $application = new Application();
 $application->add(new Command\Converter());
 $application->add(new Command\Organizer());
-$application->add(new Command\Tokenizer());
 $application->run();

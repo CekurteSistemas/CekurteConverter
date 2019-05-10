@@ -2,33 +2,29 @@
 
 namespace Cercal\IO\MediaOrganizer\File;
 
-class Search
+use Iterator;
+use SplFileInfo;
+
+final class Search
 {
-	private $context;
-
-	public function __construct(SearchContext $context)
-	{
-		$this->context = $context;
-	}
-
-	private function resolveIterator(): \Iterator
+	private function resolveIterator(SearchContext $context): \Iterator
 	{
 		$iterator = new \RecursiveDirectoryIterator(
-			$this->context->getAbsolutePath(),
+			$context->getAbsolutePath(),
 			\FilesystemIterator::CURRENT_AS_FILEINFO
 		);
 
-		if ($this->context->isRecursive()) {
+		if ($context->isRecursiveSearchEnabled()) {
 			return new \RecursiveIteratorIterator($iterator);
 		}
 
 		return $iterator;
 	}
 
-	private function applyFilters(\Iterator $iterator): \Iterator
+	private function applyFilters(SearchContext $context, Iterator $iterator): Iterator
 	{
-		return new \CallbackFilterIterator($iterator, function (\SplFileInfo $file) {
-			foreach ($this->context->getFilters() as $filter) {
+		return new \CallbackFilterIterator($iterator, function (SplFileInfo $file) use ($context) {
+			foreach ($context->getFilters() as $filter) {
 				if ($filter->filter($file) == false) {
 					return false;
 				}
@@ -38,14 +34,15 @@ class Search
 		});
 	}
 	
-    public function search(): array
+    public function search(SearchContext $context): array
     {
-		$iterator = $this->applyFilters($this->resolveIterator());
+    	$iterator = $this->resolveIterator($context);
+    	$filteredIterator = $this->applyFilters($context, $iterator);
 
         $searchResults = [];
 
-        foreach ($iterator as $file) {
-			$searchResults[] = new File($file->getPathname());
+        foreach ($filteredIterator as $file) {
+			$searchResults[] = new Picture($file->getPathname());
 		}
 
         return $searchResults;

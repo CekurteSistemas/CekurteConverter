@@ -2,15 +2,15 @@
 
 namespace Cercal\IO\MediaOrganizer\Command;
 
+use Cercal\IO\MediaOrganizer\File\FileSystemOperationNotCompletedException;
+use Cercal\IO\MediaOrganizer\File\Md5Tokenizer;
+use Cercal\IO\MediaOrganizer\File\PictureNominator;
 use Cercal\IO\MediaOrganizer\Observer\Notification;
 use Cercal\IO\MediaOrganizer\Observer\Publisher;
 use Cercal\IO\MediaOrganizer\Observer\ConsoleNotifier;
-use DateTimeImmutable;
 use RuntimeException;
-use Generator;
 use Cercal\IO\MediaOrganizer\Command\Question\SourceDirectoryQuestion;
-use Cekurte\Environment\Environment;
-use Cercal\IO\MediaOrganizer\File\File;
+use Cercal\IO\MediaOrganizer\File\Picture;
 use Cercal\IO\MediaOrganizer\File\LocalFileSystem;
 use Cercal\IO\MediaOrganizer\File\Search;
 use Cercal\IO\MediaOrganizer\File\SearchContext;
@@ -28,7 +28,7 @@ class Organizer extends Command
 
 	public function __construct()
 	{
-		$this->fileSystem = new LocalFileSystem();
+		$this->fileSystem = new LocalFileSystem(new Md5Tokenizer());
 		$this->publisher = new Publisher();
 
 		parent::__construct();
@@ -40,7 +40,7 @@ class Organizer extends Command
             ->setName('cercal:mo:organizer')
             ->setDescription('Organize files in directories using exiftool')
             ->setHelp(<<<'EOF'
-The <info>%command.name%</info> command organize the files in directories (by date of creation) using exiftool to do this:
+The <info>%command.name%</info> command organizes the files in directories (by date of creation) by using exiftool binary.
 
   <info>php %command.full_name% %command.name%</info>
 EOF
@@ -48,59 +48,35 @@ EOF
         ;
     }
 
-	private function resolveTargetPathname(File $file): string
+	private function resolveTargetPathname(Picture $picture): string
 	{
-		$result = Environment::get('ORGANIZER_TARGET_ROOT_DIR') . DIRECTORY_SEPARATOR;
+		$destinationArtifact = (new PictureNominator($picture, new Md5Tokenizer()))->nominate();
 
-		$dirnameFormat  = array_filter(explode('/', Environment::get('ORGANIZER_TARGET_DIR_NAME_FORMAT')));
-		$filenameFormat = array_filter(explode(':', Environment::get('ORGANIZER_TARGET_FILE_NAME_FORMAT')));
-		$filenameSeparator = Environment::get('ORGANIZER_TARGET_FILE_NAME_SEPARATOR');
-
-		$creationTime = $file->getExifData()->getCreationTime();
-
-		foreach ($dirnameFormat as $letter) {
-			$result .= $creationTime->format($letter) . DIRECTORY_SEPARATOR;
+		if (!$this->fileSystem->exists($destinationArtifact->getPath())) {
+			$this->fileSystem->mkdir($destinationArtifact->getPath());
 		}
 
-		if (!$this->fileSystem->exists($result)) {
-			$this->fileSystem->mkdir($result);
-		}
-
-		foreach ($filenameFormat as $letter) {
-			$result .= $creationTime->format($letter) . $filenameSeparator;
-		}
-
-		return substr($result, 0, 0 - strlen($filenameSeparator)) . '.' . strtolower($file->getExtension());
+		return (string) $destinationArtifact;
     }
 
-	private function organize(string $sourcePathname, string $targetPathname): void
+	private function organize(Picture $picture, string $targetPathname): void
 	{
-		$this->publisher->publish(Notification::info(sprintf('Source File: "%s".', $sourcePathname)));
+		$this->publisher->publish(Notification::info(sprintf('Source File: "%s".', $picture->getPathname())));
 		$this->publisher->publish(Notification::info(sprintf('Target File: "%s".', $targetPathname)));
 
-		$targetFile = new File($targetPathname);
-
-		if (is_null($targetFile->getExifData())) {
-
-		}
-
-		if ($this->fileSystem->exists($targetFile)) {
+		if ($this->fileSystem->exists($targetPathname)) {
 			$this->publisher->publish(Notification::info('A target file with the same name already exists.'));
 			$this->publisher->publish(Notification::info(('Comparing the files by using md5 checksum.')));
 
-			$equals = $this->fileSystem->compare($sourcePathname, $targetPathname);
+			$equals = $this->fileSystem->compare($picture->getPathname(), $targetPathname);
 
 			if ($equals) {
 				$this->publisher->publish(Notification::info('The files are equals to each other.'));
 				$this->publisher->publish(Notification::info('Removing the source file.'));
 
-				try {
-					$this->fileSystem->rm($sourcePathname);
+				$this->fileSystem->rm($picture->getPathname());
 
-					$this->publisher->publish(Notification::success('Source file removed successfully.'));
-				} catch (RuntimeException $e) {
-					$this->publisher->publish(Notification::error($e->getMessage()));
-				}
+				$this->publisher->publish(Notification::success('Source file removed successfully.'));
 
 				return;
 			} else {
@@ -108,13 +84,9 @@ EOF
 			}
 		}
 
-		try {
-			$this->fileSystem->mv($sourcePathname, $targetPathname);
+		$this->fileSystem->mv($picture->getPathname(), $targetPathname);
 
-			$this->publisher->publish(Notification::success('Source file moved successfully.'));
-		} catch (RuntimeException $e) {
-			$this->publisher->publish(Notification::error($e->getMessage()));
-		}
+		$this->publisher->publish(Notification::success('Source file moved successfully.'));
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
@@ -132,7 +104,7 @@ EOF
 			new SearchForPictures(),
 		]);
 
-		$searchResults = (new Search($searchContext))->search();
+		$searchResults = (new Search())->search($searchContext);
 
 		if (count($searchResults) == 0) {
 			$io->warning('No files matched the search criteria.');
@@ -142,7 +114,7 @@ EOF
 
 		$io->progressStart(count($searchResults));
 
-		/** @var File $file */
+		/** @var Picture $file */
 		foreach ($searchResults as $index => $file) {
 			if ($index > 0) $io->newLine();
 			$io->progressAdvance();
@@ -165,8 +137,11 @@ EOF
 				continue;
 			}
 
-
-			$this->organize($file->getPathname(), $targetPathname);
+			try {
+				$this->organize($file, $targetPathname);
+			} catch (FileSystemOperationNotCompletedException $e) {
+				$this->publisher->publish(Notification::error($e->getMessage()));
+			}
 		}
     }
 }

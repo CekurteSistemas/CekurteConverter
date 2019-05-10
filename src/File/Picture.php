@@ -2,9 +2,10 @@
 
 namespace Cercal\IO\MediaOrganizer\File;
 
+use Cekurte\Environment\Environment;
 use SplFileInfo;
 
-class File extends SplFileInfo
+final class Picture extends SplFileInfo
 {
 	private $exifData;
 
@@ -16,7 +17,7 @@ class File extends SplFileInfo
     public function getExifData(): ExifData
     {
     	if (!$this->exifData) {
-			$this->exifData = new ExifData($this);
+			$this->exifData = (new ExifDataReader(Environment::get('EXIFTOOL_BIN')))->read($this);
 		}
 
 		return $this->exifData;
