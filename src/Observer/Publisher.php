@@ -5,7 +5,7 @@ namespace Cercal\IO\MediaOrganizer\Observer;
 use SplObserver;
 use SplSubject;
 
-class NotificationObservable implements SplSubject
+class Publisher implements SplSubject
 {
 	private $observers;
 	private $notification;
@@ -41,7 +41,7 @@ class NotificationObservable implements SplSubject
 		return $this->notification;
 	}
 
-	public function setNotification(Notification $notification): void
+	public function publish(Notification $notification): void
 	{
 		$this->notification = $notification;
 		$this->notify();

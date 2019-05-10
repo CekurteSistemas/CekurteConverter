@@ -2,9 +2,8 @@
 
 namespace Cercal\IO\MediaOrganizer\Command;
 
-use Cercal\IO\MediaOrganizer\Command\Style\AppStyle;
 use Cercal\IO\MediaOrganizer\Observer\Notification;
-use Cercal\IO\MediaOrganizer\Observer\NotificationObservable;
+use Cercal\IO\MediaOrganizer\Observer\Publisher;
 use Cercal\IO\MediaOrganizer\Observer\ConsoleNotifier;
 use DateTimeImmutable;
 use RuntimeException;
@@ -19,14 +18,18 @@ use Cercal\IO\MediaOrganizer\File\SearchForPictures;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\Process\Exception\ProcessFailedException;
 
 class Organizer extends Command
 {
 	private $fileSystem;
+	private $publisher;
 
 	public function __construct()
 	{
 		$this->fileSystem = new LocalFileSystem();
+		$this->publisher = new Publisher();
 
 		parent::__construct();
 	}
@@ -55,10 +58,6 @@ EOF
 
 		$creationTime = $file->getExifData()->getCreationTime();
 
-		if (!$creationTime instanceof DateTimeImmutable) {
-			return '';
-		}
-
 		foreach ($dirnameFormat as $letter) {
 			$result .= $creationTime->format($letter) . DIRECTORY_SEPARATOR;
 		}
@@ -74,65 +73,60 @@ EOF
 		return substr($result, 0, 0 - strlen($filenameSeparator)) . '.' . strtolower($file->getExtension());
     }
 
-	private function getFilenameSuffixNumber(): Generator
+	private function organize(string $sourcePathname, string $targetPathname): void
 	{
-		for ($i = 1; $i <= 100; $i++) {
-			yield number_format($i, 3);
+		$this->publisher->publish(Notification::info(sprintf('Source File: "%s".', $sourcePathname)));
+		$this->publisher->publish(Notification::info(sprintf('Target File: "%s".', $targetPathname)));
+
+		$targetFile = new File($targetPathname);
+
+		if (is_null($targetFile->getExifData())) {
+
 		}
-    }
 
-	private function organize(AppStyle $io, string $sourcePathname, string $targetPathname): void
-	{
-		$notification = new NotificationObservable();
-		$notification->attach(new ConsoleNotifier($io));
-
-		if ($this->fileSystem->exists(new File($targetPathname))) {
-			$notification->setNotification(Notification::info('A target file with the same name already exists.'));
-			$notification->setNotification(Notification::info(('Comparing the files by using md5 checksum.')));
+		if ($this->fileSystem->exists($targetFile)) {
+			$this->publisher->publish(Notification::info('A target file with the same name already exists.'));
+			$this->publisher->publish(Notification::info(('Comparing the files by using md5 checksum.')));
 
 			$equals = $this->fileSystem->compare($sourcePathname, $targetPathname);
 
 			if ($equals) {
-				$notification->setNotification(Notification::info('The files are equals to each other.'));
-				$notification->setNotification(Notification::info('Removing the source file.'));
+				$this->publisher->publish(Notification::info('The files are equals to each other.'));
+				$this->publisher->publish(Notification::info('Removing the source file.'));
 
 				try {
 					$this->fileSystem->rm($sourcePathname);
 
-					$notification->setNotification(Notification::success('Source file removed successfully.'));
+					$this->publisher->publish(Notification::success('Source file removed successfully.'));
 				} catch (RuntimeException $e) {
-					$notification->setNotification(Notification::error($e->getMessage()));
+					$this->publisher->publish(Notification::error($e->getMessage()));
 				}
-
-				$io->newLine();
 
 				return;
 			} else {
-				$notification->setNotification(Notification::info('The files are different.'));
-
-				$this->organize($io, $sourcePathname, $targetPathname . '.abc');
+				$this->publisher->publish(Notification::warning('The files are different.'));
 			}
 		}
 
 		try {
 			$this->fileSystem->mv($sourcePathname, $targetPathname);
 
-			$notification->setNotification(Notification::success('Source file moved successfully.'));
+			$this->publisher->publish(Notification::success('Source file moved successfully.'));
 		} catch (RuntimeException $e) {
-			$notification->setNotification(Notification::error($e->getMessage()));
+			$this->publisher->publish(Notification::error($e->getMessage()));
 		}
-
-		$io->newLine();
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $io = new AppStyle($input, $output);
+        $io = new SymfonyStyle($input, $output);
 		$io->title('Organizer');
 		$io->newLine();
 
 		$sourceDirectory = $io->askQuestion(new SourceDirectoryQuestion());
 		$io->success($sourceDirectory);
+
+		$this->publisher->attach(new ConsoleNotifier($io));
 
         $searchContext = new SearchContext($sourceDirectory, true, [
 			new SearchForPictures(),
@@ -148,16 +142,31 @@ EOF
 
 		$io->progressStart(count($searchResults));
 
-		foreach ($searchResults as $file) {
-			$targetPathname = $this->resolveTargetPathname($file);
-
+		/** @var File $file */
+		foreach ($searchResults as $index => $file) {
+			if ($index > 0) $io->newLine();
 			$io->progressAdvance();
-
 			$io->newLine();
-			$io->writeln(sprintf(' <<< Source File: "%s"', $file->getPathname()));
-			$io->writeln(sprintf(' >>> Target File: "%s"', $targetPathname));
 
-			$this->organize($io, $file->getPathname(), $targetPathname);
+			try {
+				$targetPathname = $this->resolveTargetPathname($file);
+			} catch (ProcessFailedException $e) {
+				$commandOutput = $io->isVerbose()
+					? sprintf("\n\nCommand output: \n%s", $e->getProcess()->getOutput())
+					: '';
+
+				$this->publisher->publish(Notification::error(sprintf(
+					'The command "%s" failed [%s].%s',
+					$e->getProcess()->getCommandLine(),
+					$e->getProcess()->getExitCodeText(),
+					$commandOutput
+				)));
+
+				continue;
+			}
+
+
+			$this->organize($file->getPathname(), $targetPathname);
 		}
     }
 }

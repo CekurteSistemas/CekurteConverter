@@ -7,6 +7,7 @@ class Notification
 	public const TYPE_INFO = 'info';
 	public const TYPE_SUCCESS = 'success';
 	public const TYPE_ERROR = 'error';
+	public const TYPE_WARNING = 'warning';
 
 	private $type;
 	private $message;
@@ -25,6 +26,11 @@ class Notification
 	public static function error(string $message): Notification
 	{
 		return new Notification($message, self::TYPE_ERROR);
+	}
+
+	public static function warning(string $message): Notification
+	{
+		return new Notification($message, self::TYPE_WARNING);
 	}
 
 	public static function info(string $message): Notification
