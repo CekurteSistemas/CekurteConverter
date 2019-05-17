@@ -7,12 +7,14 @@ final class DestinationArtifact
 	private $path;
 	private $file;
 	private $extension;
+	private $fileSuffix;
 
-	public function __construct(string $path, string $file, string $extension)
+	public function __construct(string $path, string $file, string $extension, string $fileSuffix = '')
 	{
 		$this->path = $path;
 		$this->file = $file;
 		$this->extension = $extension;
+		$this->fileSuffix = empty($fileSuffix) ? '' : '_' . $fileSuffix;
 	}
 
 	public function getPath(): string
@@ -25,6 +27,11 @@ final class DestinationArtifact
 		return $this->file;
 	}
 
+	public function getFileSuffix(): string
+	{
+		return $this->fileSuffix;
+	}
+
 	public function getExtension(): string
 	{
 		return $this->extension;
@@ -35,6 +42,7 @@ final class DestinationArtifact
 		return $this->getPath()
 			. DIRECTORY_SEPARATOR
 			. $this->getFile()
+			. $this->getFileSuffix()
 			. '.'
 			. $this->getExtension();
 	}

@@ -2,6 +2,7 @@
 
 namespace Cercal\IO\MediaOrganizer\Command;
 
+use Cercal\IO\MediaOrganizer\File\DestinationArtifact;
 use Cercal\IO\MediaOrganizer\File\FileSystemOperationNotCompletedException;
 use Cercal\IO\MediaOrganizer\File\Md5Tokenizer;
 use Cercal\IO\MediaOrganizer\File\PictureNominator;
@@ -48,7 +49,7 @@ EOF
         ;
     }
 
-	private function resolveTargetPathname(Picture $picture): string
+	private function resolveTargetPathname(Picture $picture): DestinationArtifact
 	{
 		$destinationArtifact = (new PictureNominator($picture, new Md5Tokenizer()))->nominate();
 
@@ -56,19 +57,19 @@ EOF
 			$this->fileSystem->mkdir($destinationArtifact->getPath());
 		}
 
-		return (string) $destinationArtifact;
+		return $destinationArtifact;
     }
 
-	private function organize(Picture $picture, string $targetPathname): void
+	private function organize(Picture $picture, DestinationArtifact $destinationArtifact, $filenameSuffixNumber = 0): void
 	{
 		$this->publisher->publish(Notification::info(sprintf('Source File: "%s".', $picture->getPathname())));
-		$this->publisher->publish(Notification::info(sprintf('Target File: "%s".', $targetPathname)));
+		$this->publisher->publish(Notification::info(sprintf('Target File: "%s".', $destinationArtifact)));
 
-		if ($this->fileSystem->exists($targetPathname)) {
+		if ($this->fileSystem->exists((string) $destinationArtifact)) {
 			$this->publisher->publish(Notification::info('A target file with the same name already exists.'));
 			$this->publisher->publish(Notification::info(('Comparing the files by using md5 checksum.')));
 
-			$equals = $this->fileSystem->compare($picture->getPathname(), $targetPathname);
+			$equals = $this->fileSystem->compare($picture->getPathname(), (string) $destinationArtifact);
 
 			if ($equals) {
 				$this->publisher->publish(Notification::info('The files are equals to each other.'));
@@ -81,17 +82,33 @@ EOF
 				return;
 			} else {
 				$this->publisher->publish(Notification::warning('The files are different.'));
+				$this->publisher->publish(Notification::info('Generating a sequential filename suffix.'));
+				$this->publisher->publish(Notification::info('Trying to organize the files again.'));
+
+				$this->organize(
+					$picture,
+					new DestinationArtifact(
+						$destinationArtifact->getPath(),
+						$destinationArtifact->getFile(),
+						$destinationArtifact->getExtension(),
+						sprintf('%03d', ++$filenameSuffixNumber)
+					),
+					$filenameSuffixNumber
+				);
+				return;
 			}
 		}
 
-		$this->fileSystem->mv($picture->getPathname(), $targetPathname);
+		$this->fileSystem->mv($picture->getPathname(), (string) $destinationArtifact);
 
 		$this->publisher->publish(Notification::success('Source file moved successfully.'));
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $io = new SymfonyStyle($input, $output);
+		$executionStartTime = microtime(true);
+
+		$io = new SymfonyStyle($input, $output);
 		$io->title('Organizer');
 		$io->newLine();
 
@@ -143,5 +160,16 @@ EOF
 				$this->publisher->publish(Notification::error($e->getMessage()));
 			}
 		}
+
+		$executionEndTime = microtime(true);
+
+
+		$report = $this->publisher->getReport();
+
+		$io->section('Reports');
+		$io->writeln(sprintf(' > Execution time: %.2fs', ($executionEndTime - $executionStartTime)));
+		$io->writeln(sprintf(' > Memory peak usage: %.3fMB', (memory_get_peak_usage() / 1024) / 1024));
+		$io->newLine();
+		$io->table(array_keys($report), [$report]);
     }
 }

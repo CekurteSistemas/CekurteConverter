@@ -9,10 +9,17 @@ class Publisher implements SplSubject
 {
 	private $observers;
 	private $notification;
+	private $report;
 
 	public function __construct()
 	{
 		$this->observers = [];
+		$this->report = [
+			Notification::TYPE_ERROR => 0,
+			Notification::TYPE_WARNING => 0,
+			Notification::TYPE_INFO => 0,
+			Notification::TYPE_SUCCESS => 0,
+		];
 	}
 
 	public function attach(SplObserver $observer): void
@@ -41,8 +48,19 @@ class Publisher implements SplSubject
 		return $this->notification;
 	}
 
+	private function updateReport(Notification $notification): void
+	{
+		$this->report[$notification->getType()]++;
+	}
+
+	public function getReport(): array
+	{
+		return $this->report;
+	}
+
 	public function publish(Notification $notification): void
 	{
+		$this->updateReport($notification);
 		$this->notification = $notification;
 		$this->notify();
 	}

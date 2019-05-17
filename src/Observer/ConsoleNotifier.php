@@ -48,7 +48,7 @@ class ConsoleNotifier implements SplObserver
 
 		return sprintf(
 			'[%s] %s',
-			$notification->getType() == Notification::TYPE_SUCCESS ? 'OK' : 'ERROR',
+			$notification->getType(),
 			$notification->getMessage()
 		);
 	}
